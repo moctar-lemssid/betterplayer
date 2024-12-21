@@ -27,6 +27,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkInfo
 import com.google.android.exoplayer2.drm.HttpMediaDrmCallback
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
+import com.google.android.exoplayer2.drm.DefaultDrmSessionManagerProvider
 import com.google.android.exoplayer2.drm.DefaultDrmSessionManager
 import com.google.android.exoplayer2.drm.FrameworkMediaDrm
 import com.google.android.exoplayer2.drm.UnsupportedDrmException
@@ -375,21 +376,20 @@ internal class BetterPlayer(
     }
 
     private fun buildMediaSource(
-        uri: Uri,
-        mediaDataSourceFactory: DataSource.Factory,
-        formatHint: String?,
-        cacheKey: String?,
-        context: Context
+    uri: Uri,
+    mediaDataSourceFactory: DataSource.Factory,
+    formatHint: String?,
+    cacheKey: String?,
+    context: Context
     ): MediaSource {
-        val type: Int
-        if (formatHint == null) {
+        val type: Int = if (formatHint == null) {
             var lastPathSegment = uri.lastPathSegment
             if (lastPathSegment == null) {
                 lastPathSegment = ""
             }
-            type = Util.inferContentType(lastPathSegment)
+            Util.inferContentType(lastPathSegment)
         } else {
-            type = when (formatHint) {
+            when (formatHint) {
                 FORMAT_SS -> C.TYPE_SS
                 FORMAT_DASH -> C.TYPE_DASH
                 FORMAT_HLS -> C.TYPE_HLS
@@ -397,16 +397,19 @@ internal class BetterPlayer(
                 else -> -1
             }
         }
+
         val mediaItemBuilder = MediaItem.Builder()
-        mediaItemBuilder.setUri(uri)
-        if (cacheKey != null && cacheKey.isNotEmpty()) {
+            .setUri(uri)
+        if (!cacheKey.isNullOrEmpty()) {
             mediaItemBuilder.setCustomCacheKey(cacheKey)
         }
         val mediaItem = mediaItemBuilder.build()
-        var drmSessionManagerProvider: DrmSessionManagerProvider? = null
-        drmSessionManager?.let { drmSessionManager ->
-            drmSessionManagerProvider = DrmSessionManagerProvider { drmSessionManager }
-        }
+
+        // Explicitly construct the DrmSessionManagerProvider
+        val drmSessionManagerProvider: DrmSessionManagerProvider = drmSessionManager?.let { drmSessionManager ->
+            DrmSessionManagerProvider { drmSessionManager }
+        } ?: DefaultDrmSessionManagerProvider()
+
         return when (type) {
             C.TYPE_SS -> SsMediaSource.Factory(
                 DefaultSsChunkSource.Factory(mediaDataSourceFactory),
@@ -429,9 +432,7 @@ internal class BetterPlayer(
             )
                 .setDrmSessionManagerProvider(drmSessionManagerProvider)
                 .createMediaSource(mediaItem)
-            else -> {
-                throw IllegalStateException("Unsupported type: $type")
-            }
+            else -> throw IllegalStateException("Unsupported type: $type")
         }
     }
 
@@ -544,7 +545,7 @@ internal class BetterPlayer(
     }
 
     fun setTrackParameters(width: Int, height: Int, bitrate: Int) {
-        val parametersBuilder = trackSelector.buildUponParameters()
+        val parametersBuilder = DefaultTrackSelector.ParametersBuilder()
         if (width != 0 && height != 0) {
             parametersBuilder.setMaxVideoSize(width, height)
         }
@@ -555,7 +556,7 @@ internal class BetterPlayer(
             parametersBuilder.clearVideoSizeConstraints()
             parametersBuilder.setMaxVideoBitrate(Int.MAX_VALUE)
         }
-        trackSelector.setParameters(parametersBuilder)
+        trackSelector.setParameters(parametersBuilder.build())
     }
 
     fun seekTo(location: Int) {
